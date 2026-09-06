@@ -6,6 +6,9 @@ import {
   teachingDna as teachingDnaTable,
   teachingDnaEvidence,
   teachingMaterials,
+  studentProgress,
+  students,
+  twinInteractions,
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -243,5 +246,87 @@ export async function getEvidenceForMaterials(materialIds: number[], teacherId =
   if (!dna) return [];
   return dna.evidence.filter(item => materialIds.includes(item.teachingMaterialId));
 }
+
+const DEMO_CLASS_ID = "Biology 204 · Cell Systems";
+const DEMO_CONCEPT = "Cellular respiration";
+
+const demoStudents = [
+  { name: "Daniel", masteryScore: 42, confidenceScore: 28, misconceptions: ["ATP vs glucose"], strengths: ["Understands cells need usable energy"], preferredExplanationStyle: "Real-world examples", recommendedStrategy: "Use a fuel-versus-wallet analogy before adding ATP synthesis." },
+  { name: "Amara", masteryScore: 71, confidenceScore: 58, misconceptions: ["Electron transport chain"], strengths: ["Strong conceptual overview"], preferredExplanationStyle: "Step-by-step", recommendedStrategy: "Sequence the electron carriers with one concrete checkpoint per step." },
+  { name: "Michael", masteryScore: 89, confidenceScore: 84, misconceptions: [], strengths: ["Connects mechanism to application", "Explains ATP role accurately"], preferredExplanationStyle: "Conceptual detail", recommendedStrategy: "Invite transfer to a novel biological context." },
+  { name: "Sarah", masteryScore: 63, confidenceScore: 46, misconceptions: ["Fermentation and oxygen limitation"], strengths: ["Asks productive questions"], preferredExplanationStyle: "Question-driven", recommendedStrategy: "Start with a prediction question, then compare aerobic and anaerobic paths." },
+];
+
+export async function ensureDemoStudents(teacherId = DEMO_TEACHER_ID) {
+  const db = await getDb();
+  if (!db) return [];
+  const existing = await db.select().from(students).where(eq(students.teacherId, teacherId));
+  if (existing.length < demoStudents.length) {
+    const existingNames = new Set(existing.map(student => student.name));
+    for (const demo of demoStudents.filter(item => !existingNames.has(item.name))) {
+      await db.insert(students).values({ teacherId, classId: DEMO_CLASS_ID, name: demo.name, isDemo: true, createdAt: Date.now() });
+    }
+  }
+  const seeded = await db.select().from(students).where(eq(students.teacherId, teacherId));
+  for (const student of seeded) {
+    const progress = await db.select().from(studentProgress).where(and(eq(studentProgress.studentId, student.id), eq(studentProgress.concept, DEMO_CONCEPT))).limit(1);
+    if (!progress[0]) {
+      const demo = demoStudents.find(item => item.name === student.name) ?? demoStudents[0];
+      await db.insert(studentProgress).values({ studentId: student.id, classId: DEMO_CLASS_ID, concept: DEMO_CONCEPT, masteryScore: demo.masteryScore, confidenceScore: demo.confidenceScore, misconceptions: demo.misconceptions, strengths: demo.strengths, preferredExplanationStyle: demo.preferredExplanationStyle, recommendedStrategy: demo.recommendedStrategy, updatedAt: Date.now() });
+    }
+  }
+  return db.select().from(students).where(eq(students.teacherId, teacherId));
+}
+
+export async function listDemoStudents(teacherId = DEMO_TEACHER_ID) {
+  const db = await getDb();
+  if (!db) return [];
+  const seeded = await ensureDemoStudents(teacherId);
+  const result = [];
+  for (const student of seeded) {
+    const progress = await db.select().from(studentProgress).where(and(eq(studentProgress.studentId, student.id), eq(studentProgress.concept, DEMO_CONCEPT))).limit(1);
+    result.push({ ...student, progress: progress[0] });
+  }
+  return result;
+}
+
+export async function getStudentContext(studentId: number | null, teacherId = DEMO_TEACHER_ID) {
+  const db = await getDb();
+  if (!db) return undefined;
+  await ensureDemoStudents(teacherId);
+  if (!studentId) return { student: null, progress: null };
+  const studentRows = await db.select().from(students).where(and(eq(students.id, studentId), eq(students.teacherId, teacherId))).limit(1);
+  const student = studentRows[0];
+  if (!student) return undefined;
+  const progressRows = await db.select().from(studentProgress).where(and(eq(studentProgress.studentId, student.id), eq(studentProgress.concept, DEMO_CONCEPT))).orderBy(desc(studentProgress.updatedAt)).limit(1);
+  return { student, progress: progressRows[0] };
+}
+
+export async function getRecentTwinInteractions(teacherId = DEMO_TEACHER_ID, studentId?: number | null) {
+  const db = await getDb();
+  if (!db) return [];
+  const filters = [eq(twinInteractions.teacherId, teacherId)];
+  if (studentId) filters.push(eq(twinInteractions.studentId, studentId));
+  return db.select().from(twinInteractions).where(and(...filters)).orderBy(desc(twinInteractions.createdAt)).limit(5);
+}
+
+export async function createTwinInteraction(input: { teacherId?: number; studentId?: number | null; concept: string; teacherRequest: string; generatedResponse: unknown }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available.");
+  const teacherId = input.teacherId ?? DEMO_TEACHER_ID;
+  await db.insert(twinInteractions).values({ teacherId, studentId: input.studentId ?? null, concept: input.concept, teacherRequest: input.teacherRequest, generatedResponse: input.generatedResponse, createdAt: Date.now() });
+  return db.select().from(twinInteractions).where(eq(twinInteractions.teacherId, teacherId)).orderBy(desc(twinInteractions.id)).limit(1).then(rows => rows[0]);
+}
+
+export async function saveLearningSignal(input: { interactionId: number; studentId: number; masteryScore: number; confidenceScore: number; misconceptions: string[]; strengths: string[]; recommendedStrategy: string; learningSignal: unknown; teacherId?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available.");
+  const teacherId = input.teacherId ?? DEMO_TEACHER_ID;
+  await db.update(twinInteractions).set({ studentAnswer: (input.learningSignal as { studentAnswer?: string }).studentAnswer ?? null, learningSignal: input.learningSignal }).where(and(eq(twinInteractions.id, input.interactionId), eq(twinInteractions.teacherId, teacherId)));
+  await db.update(studentProgress).set({ masteryScore: input.masteryScore, confidenceScore: input.confidenceScore, misconceptions: input.misconceptions, strengths: input.strengths, recommendedStrategy: input.recommendedStrategy, updatedAt: Date.now() }).where(and(eq(studentProgress.studentId, input.studentId), eq(studentProgress.concept, DEMO_CONCEPT)));
+  return getStudentContext(input.studentId, teacherId);
+}
+
+export { DEMO_CLASS_ID, DEMO_CONCEPT };
 
 export { DEMO_TEACHER_ID };

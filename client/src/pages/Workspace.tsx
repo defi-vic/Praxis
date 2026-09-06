@@ -13,12 +13,15 @@ import {
   Layers3,
   Lightbulb,
   Menu,
+  MessageCircle,
   MoreHorizontal,
   Plus,
   Search,
+  Send,
   Settings,
   Sparkles,
   Upload,
+  UserRound,
   Users,
   X,
 } from "lucide-react";
@@ -121,8 +124,8 @@ export default function Workspace() {
           {active === "My Twin" && <TwinView showToast={showToast} dna={dna} setActive={go} />}
           {active === "Teaching DNA" && <TeachingDNAView dna={dna} materials={materials} setActive={go} setSelectedMaterialId={setSelectedMaterialId} />}
           {active === "Content" && <ContentView materials={materials} selectedMaterialId={selectedMaterialId} setSelectedMaterialId={setSelectedMaterialId} onAnalyze={onAnalyze} analyzingId={analyzingId} currentMaterial={currentMaterial} />}
-          {active === "Classes" && <PlaceholderView title="Classes" description="Your classroom spaces will live here. The Teaching DNA engine is now connected to Content, ready to learn from every class." icon={<Users size={23} />} />}
-          {active === "Insights" && <PlaceholderView title="Insights" description="Once Praxis has more Teaching DNA evidence, this space will connect teaching patterns to student learning moments." icon={<Lightbulb size={23} />} />}
+          {active === "Classes" && <ClassesView />}
+          {active === "Insights" && <InsightsView />}
           {active === "Settings" && <PlaceholderView title="Settings" description="Workspace settings are coming soon. Your Teaching DNA remains stored and available to the future Praxis Twin." icon={<Settings size={23} />} />}
         </div>
       </section>
@@ -142,8 +145,50 @@ function OverviewView({ showToast, setActive, dna }: { showToast: (message: stri
 
 function TwinView({ showToast, dna, setActive }: { showToast: (message: string) => void; dna: any; setActive: (view: WorkspaceView) => void }) {
   const score = scoreFromDna(dna);
-  const characteristics = dna?.rawAnalysis?.styleCharacteristics ?? [];
-  return <><div className="workspace-heading twin-heading"><div><span className="micro-label">MY TWIN / TEACHING DNA</span><h1>Your Praxis Twin.</h1><p>{dna ? "An AI model shaped by the way you teach." : "Your Twin becomes ready after Praxis learns from your teaching material."}</p></div><button className="workspace-secondary" onClick={() => dna ? showToast("Profile export coming soon") : setActive("Content")}>{dna ? <>Export profile <ArrowUpRight size={14} /></> : <>Analyze material <ArrowUpRight size={14} /></>}</button></div>{dna ? <><div className="twin-layout"><div className="twin-profile-card"><div className="twin-card-top"><div className="twin-orbit"><BrainCircuit size={27} /></div><div><span className="micro-label">PROFILE MATCH</span><strong>{score ?? "—"}%</strong></div></div><div className="twin-wave"><span /><span /><span /><span /><span /><span /><span /><span /><span /></div><div className="twin-card-foot"><span>{dna.confidence} profile</span><span>{dna.sourceCount} source{dna.sourceCount === 1 ? "" : "s"}</span></div></div><div className="twin-dna-panel"><div className="panel-title"><div><span className="micro-label">DETECTED PATTERNS</span><h3>Teaching DNA</h3></div><button onClick={() => setActive("Teaching DNA")}><ArrowUpRight size={16} /></button></div><DnaRows dna={dna} /><div className="twin-note"><Sparkles size={14} /><span>These values reflect patterns detected from your teaching materials.</span></div></div></div><div className="learned-section"><div className="panel-title"><div><span className="micro-label">STYLE SIGNALS</span><h3>What your materials tell us</h3></div><button onClick={() => setActive("Teaching DNA")}>View evidence <ArrowUpRight size={14} /></button></div><div className="learned-grid">{characteristics.slice(0, 3).map((item: any, index: number) => <div className="learned-card" key={`${item.label}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span><p>{item.description}</p><small>Derived from analyzed material</small></div>)}</div></div></> : <EmptyDnaPanel setActive={setActive} />}</>;
+  const studentsQuery = trpc.twin.students.useQuery();
+  const [studentId, setStudentId] = useState<number | null>(null);
+  const [request, setRequest] = useState("Explain ATP to Daniel in the way I normally teach.");
+  const [answer, setAnswer] = useState("");
+  const [twinResponse, setTwinResponse] = useState<any>(null);
+  const [learningSignal, setLearningSignal] = useState<any>(null);
+  const [intervention, setIntervention] = useState<any>(null);
+  const students = studentsQuery.data ?? [];
+  const selectedStudent: any = students.find((student: any) => student.id === studentId) ?? null;
+  const generateMutation = trpc.twin.generate.useMutation({ onError: error => toast.error(error.message) });
+  const evaluateMutation = trpc.twin.evaluate.useMutation({ onError: error => toast.error(error.message) });
+  const interventionMutation = trpc.twin.intervention.useMutation({ onError: error => toast.error(error.message) });
+  const submitRequest = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!request.trim()) return;
+    setLearningSignal(null); setIntervention(null);
+    try { setTwinResponse(await generateMutation.mutateAsync({ studentId, request })); } catch { /* toast handled by mutation */ }
+  };
+  const submitAnswer = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!answer.trim() || !twinResponse || !studentId) return;
+    const signal = await evaluateMutation.mutateAsync({ interactionId: twinResponse.interactionId, studentId, interaction: twinResponse, answer });
+    setLearningSignal(signal);
+  };
+  const generateTeacherIntervention = async () => {
+    if (!studentId || !learningSignal) return;
+    setIntervention(await interventionMutation.mutateAsync({ studentId, concept: twinResponse?.concept ?? "Cellular respiration", learningSignal }));
+  };
+  const dnaRows = Object.entries(dna?.rawAnalysis?.dimensions ?? {}).filter(([, detail]: any) => detail.status === "observed").slice(0, 4) as Array<[string, any]>;
+  return <>
+    <div className="workspace-heading twin-heading"><div><span className="micro-label">MY TWIN / ACTIVE COMPANION</span><h1>Your Praxis Twin.</h1><p>An AI teaching companion shaped by the way you teach.</p></div><div className="twin-status"><span /> Teaching DNA active</div></div>
+    <div className="twin-summary-strip"><div><span className="micro-label">TWIN STATUS</span><strong><i /> Active</strong></div><div><span className="micro-label">TEACHING DNA</span><strong>{dna ? dna.confidence : "Developing"}</strong></div><div><span className="micro-label">SOURCES ANALYZED</span><strong>{dna?.sourceCount ?? 0} materials</strong></div><button onClick={() => setActive("Teaching DNA")}>View DNA <ArrowUpRight size={14} /></button></div>
+    <div className="twin-workspace-grid">
+      <section className="twin-conversation">
+        <div className="twin-conversation-head"><div><span className="micro-label">PRAXIS TWIN</span><h3>Teaching with your approach, adapted for every learner.</h3></div><MessageCircle size={18} /></div>
+        <div className="twin-context-row"><label>Explain this to<select value={studentId ?? ""} onChange={event => setStudentId(event.target.value ? Number(event.target.value) : null)}><option value="">General class</option>{students.map((student: any) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></label>{selectedStudent && <div className="student-context-chip"><UserRound size={14} /><span><strong>{selectedStudent.name}</strong> · {selectedStudent.progress?.masteryScore}% mastery · {selectedStudent.progress?.misconceptions?.join(", ") || "No major misconception"}</span></div>}</div>
+        <div className="twin-thread"><div className="twin-thread-note"><span className="twin-thread-dot" /> Teaching DNA active · teacher-controlled recommendation</div>{twinResponse ? <><div className="twin-message teacher-message"><span className="message-label">YOUR REQUEST</span><p>{request}</p></div><div className="twin-message twin-response"><span className="message-label">PRAXIS TWIN · TEACHING DNA APPLIED</span><p>{twinResponse.response}</p><div className="strategy-tags">{twinResponse.strategies_used.map((strategy: string) => <span key={strategy}>{strategy.replaceAll("_", " ")}</span>)}</div><div className="why-twin"><strong>Why Praxis taught it this way</strong><div><span><b>Matched to your teaching style</b>{twinResponse.why_taught_this_way.teaching_style.join(" · ")}</span><span><b>Adapted for {selectedStudent?.name ?? "the class"}</b>{twinResponse.why_taught_this_way.student_adaptation.join(" · ")}</span></div></div></div><div className="twin-follow-up"><span className="message-label">ASK {selectedStudent?.name?.toUpperCase() ?? "THE CLASS"} TO TRY IT</span><p>{twinResponse.follow_up_question}</p><form onSubmit={submitAnswer}><input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Type your answer..." disabled={!studentId || evaluateMutation.isPending} /><button disabled={!studentId || !answer.trim() || evaluateMutation.isPending}>{evaluateMutation.isPending ? "Checking…" : "Check my understanding"} <Send size={14} /></button></form></div></> : <div className="twin-empty-thread"><BrainCircuit size={25} /><h3>Make your Teaching DNA useful.</h3><p>Select a learner, then ask your Twin to explain a concept using the way you normally teach.</p></div>}</div>
+        <form className="twin-request-form" onSubmit={submitRequest}><textarea value={request} onChange={event => setRequest(event.target.value)} placeholder="What would you like your Twin to teach?" rows={2} /><button disabled={generateMutation.isPending || !request.trim()}>{generateMutation.isPending ? "Generating…" : "Generate explanation"} <ArrowUpRight size={15} /></button></form>
+      </section>
+      <aside className="twin-side-panel"><div className="panel-title"><div><span className="micro-label">LEARNER CONTEXT</span><h3>{selectedStudent ? selectedStudent.name : "Choose a student"}</h3></div><UserRound size={18} /></div>{selectedStudent ? <div className="learner-details"><div className="learner-stat"><span>Mastery</span><strong>{selectedStudent.progress?.masteryScore}%</strong></div><div><span>Needs support with</span><strong>{selectedStudent.progress?.misconceptions?.join(", ") || "Transfer to a new context"}</strong></div><div><span>Preferred learning approach</span><strong>{selectedStudent.progress?.preferredExplanationStyle}</strong></div><div><span>Confidence</span><strong>{selectedStudent.progress?.confidenceScore < 40 ? "Low" : selectedStudent.progress?.confidenceScore < 70 ? "Developing" : "High"}</strong></div></div> : <p className="empty-copy">Choose Daniel to run the hackathon demo scenario, or select General class for a group explanation.</p>}<div className="twin-side-dna"><span className="micro-label">TEACHING DNA SUMMARY</span><DnaRows dna={dna} /><small>{dna ? `${dna.sourceCount} analyzed materials inform this Twin.` : "Analyze teaching material to activate the Twin."}</small></div></aside>
+    </div>
+    {learningSignal && <section className="learning-signal-panel"><div><span className="micro-label">LEARNING SIGNAL · TEACHER REVIEW</span><h3>Understanding detected</h3><p>{learningSignal.observation}</p></div><div className="signal-metrics"><strong>{selectedStudent?.progress?.masteryScore ?? "—"}% <small>→</small> {learningSignal.mastery_estimate}%<span>mastery estimate</span></strong><span><b>Next step</b>{learningSignal.recommended_next_step}</span></div><div className="signal-actions"><button className="workspace-secondary" onClick={generateTeacherIntervention} disabled={interventionMutation.isPending}>{interventionMutation.isPending ? "Generating…" : "Generate intervention"} <ArrowUpRight size={14} /></button>{learningSignal.misconception_detected && <small>Observation: {learningSignal.misconception_detected}</small>}</div></section>}
+    {intervention && <section className="intervention-panel"><div><span className="micro-label">RECOMMENDED INTERVENTION · REVIEW BEFORE USE</span><h3>{intervention.title}</h3><p>{intervention.opening}</p></div><div className="intervention-grid"><span><b>Teaching approach</b>{intervention.teaching_approach.join(" + ")}</span><span><b>Guided question</b>{intervention.guided_question}</span><span><b>Check for understanding</b>{intervention.check_for_understanding}</span><span><b>Expected misconception</b>{intervention.expected_misconception}</span></div></section>}
+  </>;
 }
 
 function DnaRows({ dna }: { dna: any }) {
@@ -167,6 +212,18 @@ function TeachingDNAView({ dna, materials, setActive, setSelectedMaterialId }: {
     <section className="learned-section dna-learned-section"><div className="panel-title"><div><span className="micro-label">EVIDENCE / {observations.length} OBSERVED PATTERN{observations.length === 1 ? "" : "S"}</span><h3>How Praxis learned your style</h3></div></div><div className="learned-grid">{observations.length ? observations.map((item: any, index: number) => <article className="learned-card" key={`${item.dimension}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span><p>{item.observation}</p><blockquote>“{item.evidenceExcerpt}”</blockquote><small>Based on analyzed teaching material</small></article>) : <p className="empty-copy">More evidence will appear as Praxis analyzes additional material.</p>}</div></section>
     <section className="sources-section"><div className="panel-title"><div><span className="micro-label">MATERIALS USED</span><h3>Sources contributing to this profile</h3></div><button onClick={() => setActive("Content")}>Manage sources <ArrowUpRight size={14} /></button></div><div className="source-list">{contributingMaterials.length ? contributingMaterials.map((material: any) => <button className="source-row" key={material.id} onClick={() => { setSelectedMaterialId(material.id); setActive("Content"); }}><span className="source-type">{material.type}</span><span className="source-copy"><strong>{material.title}</strong><small>{material.isDemo ? "Seeded demo material · " : "Analyzed "}{dateLabel(material.createdAt)}</small></span><span className="source-status">Analyzed <ArrowUpRight size={13} /></span></button>) : <p className="empty-copy">No contributing sources yet.</p>}</div></section>
   </>;
+}
+
+function ClassesView() {
+  const studentsQuery = trpc.twin.students.useQuery();
+  const students = studentsQuery.data ?? [];
+  const needingSupport = students.filter((student: any) => (student.progress?.masteryScore ?? 100) < 60);
+  return <><div className="workspace-heading"><div><span className="micro-label">WORKSPACE / CLASSES</span><h1>Classroom pulse.</h1><p>See where learners need a different path through the concept.</p></div><span className="class-mode-badge">Biology 204 · Cell Systems</span></div><div className="class-overview-strip"><div><span className="micro-label">STUDENTS</span><strong>32</strong></div><div><span className="micro-label">CELLULAR RESPIRATION</span><strong>74% <small>mastery</small></strong></div><div><span className="micro-label">POTENTIAL MISCONCEPTION</span><strong>ATP vs glucose</strong></div><div><span className="micro-label">NEEDING SUPPORT</span><strong>{needingSupport.length + 6}</strong></div></div><section className="class-support-panel"><div className="panel-title"><div><span className="micro-label">LEARNING SIGNAL</span><h3>Students needing support</h3></div><span className="evidence-caption">Demo data · teacher review required</span></div><div className="support-student-list">{students.map((student: any) => <div className={`support-student-row ${(student.progress?.masteryScore ?? 0) < 60 ? "needs-support" : ""}`} key={student.id}><div className="teacher-avatar">{student.name.slice(0, 2).toUpperCase()}</div><div><strong>{student.name}</strong><span>{student.progress?.misconceptions?.join(", ") || "No major misconception"}</span></div><div className="support-mastery"><strong>{student.progress?.masteryScore}%</strong><small>mastery</small></div><span className="support-preference">{student.progress?.preferredExplanationStyle}</span></div>)}</div></section></>;
+}
+
+function InsightsView() {
+  const insightMutation = trpc.twin.classroomInsight.useMutation({ onError: error => toast.error(error.message) });
+  return <><div className="workspace-heading"><div><span className="micro-label">WORKSPACE / INSIGHTS</span><h1>Praxis noticed a pattern.</h1><p>Learning signals become teacher-reviewed recommendations, not automated decisions.</p></div><button className="workspace-primary" onClick={() => insightMutation.mutate()} disabled={insightMutation.isPending}><Sparkles size={15} /> {insightMutation.isPending ? "Finding pattern…" : "Generate insight"}</button></div><section className="insight-hero"><div className="alert-icon"><Sparkles size={18} /></div><div><span className="micro-label">AI CLASSROOM INSIGHT · BIOLOGY 204</span><h2>{insightMutation.data?.headline ?? "A class-level pattern is ready to inspect."}</h2><p>{insightMutation.data?.what_this_means ?? "Praxis will compare the demo class learning signals with Sarah’s Teaching DNA and surface a concise, teacher-controlled recommendation."}</p></div></section>{insightMutation.data && <section className="insight-detail-grid"><div><span className="micro-label">WHAT THIS MEANS</span><p>{insightMutation.data.what_this_means}</p></div><div><span className="micro-label">RECOMMENDED ACTION</span><p>{insightMutation.data.recommended_action}</p><button className="workspace-secondary" onClick={() => toast("Open My Twin to generate the intervention from this context")}>Generate intervention <ArrowUpRight size={14} /></button></div><div><span className="micro-label">STUDENTS AFFECTED</span>{insightMutation.data.affected_students.map((student: any) => <div className="affected-student" key={student.name}><strong>{student.name}</strong><span>{student.mastery}% · {student.reason}</span></div>)}</div></section>}</>;
 }
 
 function ContentView({ materials, selectedMaterialId, setSelectedMaterialId, onAnalyze, analyzingId, currentMaterial }: { materials: any[]; selectedMaterialId: number | null; setSelectedMaterialId: (id: number | null) => void; onAnalyze: (id: number) => void; analyzingId: number | null; currentMaterial: any }) {

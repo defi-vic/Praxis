@@ -12,12 +12,17 @@ import {
   getTeachingAnalysis,
   getTeachingDNA,
   getTeachingMaterial,
+  getStudentContext,
+  listDemoStudents,
   listTeachingMaterials,
+  createTwinInteraction,
+  saveLearningSignal,
   saveTeachingAnalysis,
   updateTeachingMaterialContent,
   updateTeachingMaterialStatus,
 } from "./db";
 import { TRPCError } from "@trpc/server";
+import { evaluateStudentAnswer, generateClassroomInsight, generateIntervention, generateTwinExplanation } from "./praxisTwin";
 
 const MAX_BASE64_CHARS = 7_000_000;
 const materialInput = z.object({
@@ -93,6 +98,36 @@ export const appRouter = router({
   teachingDna: router({
     get: publicProcedure.query(() => getTeachingDNA(DEMO_TEACHER_ID)),
     getByTeacher: publicProcedure.input(z.object({ teacherId: z.number().int().positive() })).query(({ input }) => getTeachingDNA(input.teacherId)),
+  }),
+  twin: router({
+    students: publicProcedure.query(() => listDemoStudents(DEMO_TEACHER_ID)),
+    context: publicProcedure.input(z.object({ studentId: z.number().int().positive().nullable() })).query(({ input }) => getStudentContext(input.studentId, DEMO_TEACHER_ID)),
+    generate: publicProcedure.input(z.object({ studentId: z.number().int().positive().nullable(), request: z.string().trim().min(8).max(1000) })).mutation(async ({ input }) => {
+      try {
+        const generated = await generateTwinExplanation({ teacherId: DEMO_TEACHER_ID, studentId: input.studentId, request: input.request });
+        const interaction = await createTwinInteraction({ teacherId: DEMO_TEACHER_ID, studentId: input.studentId, concept: generated.result.concept, teacherRequest: input.request, generatedResponse: generated.result });
+        return { ...generated.result, interactionId: interaction?.id ?? null };
+      } catch (error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Praxis Twin could not generate an explanation." });
+      }
+    }),
+    evaluate: publicProcedure.input(z.object({ interactionId: z.number().int().positive(), studentId: z.number().int().positive(), interaction: z.object({ response: z.string(), strategies_used: z.array(z.string()), personalization: z.array(z.string()), follow_up_question: z.string(), why_taught_this_way: z.object({ teaching_style: z.array(z.string()), student_adaptation: z.array(z.string()) }), concept: z.string() }), answer: z.string().trim().min(1).max(1200) })).mutation(async ({ input }) => {
+      try {
+        const signal = await evaluateStudentAnswer({ teacherId: DEMO_TEACHER_ID, studentId: input.studentId, interaction: input.interaction as any, answer: input.answer });
+        await saveLearningSignal({ interactionId: input.interactionId, studentId: input.studentId, masteryScore: signal.mastery_estimate, confidenceScore: signal.confidence_signal === "high" ? 82 : signal.confidence_signal === "medium" ? 58 : 34, misconceptions: signal.misconception_detected ? [signal.misconception_detected] : [], strengths: signal.correctness === "correct" ? ["Applied the explanation to the follow-up question"] : [], recommendedStrategy: signal.recommended_next_step, learningSignal: { ...signal, studentAnswer: input.answer }, teacherId: DEMO_TEACHER_ID });
+        return signal;
+      } catch (error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Praxis Twin could not evaluate that response." });
+      }
+    }),
+    intervention: publicProcedure.input(z.object({ studentId: z.number().int().positive(), concept: z.string().min(1).max(160), learningSignal: z.object({ correctness: z.string(), mastery_estimate: z.number(), confidence_signal: z.string(), misconception_detected: z.string(), observation: z.string(), recommended_next_step: z.string(), intervention_focus: z.string() }) })).mutation(async ({ input }) => {
+      try { return await generateIntervention({ teacherId: DEMO_TEACHER_ID, studentId: input.studentId, concept: input.concept, learningSignal: input.learningSignal as any }); }
+      catch (error) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Praxis could not generate an intervention." }); }
+    }),
+    classroomInsight: publicProcedure.mutation(async () => {
+      try { return await generateClassroomInsight({ teacherId: DEMO_TEACHER_ID }); }
+      catch (error) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Praxis could not generate a classroom insight." }); }
+    }),
   }),
 });
 

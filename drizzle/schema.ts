@@ -65,9 +65,47 @@ export const teachingDnaEvidence = mysqlTable("teachingDnaEvidence", {
   createdAt: bigint("createdAt", { mode: "number" }).notNull(),
 });
 
+export const students = mysqlTable("students", {
+  id: int("id").autoincrement().primaryKey(),
+  teacherId: int("teacherId").notNull(),
+  classId: varchar("classId", { length: 128 }).notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  isDemo: boolean("isDemo").default(true).notNull(),
+  createdAt: bigint("createdAt", { mode: "number" }).notNull(),
+});
+
+export const studentProgress = mysqlTable("studentProgress", {
+  id: int("id").autoincrement().primaryKey(),
+  studentId: int("studentId").notNull(),
+  classId: varchar("classId", { length: 128 }).notNull(),
+  concept: varchar("concept", { length: 160 }).notNull(),
+  masteryScore: int("masteryScore").notNull(),
+  confidenceScore: int("confidenceScore").notNull(),
+  misconceptions: json("misconceptions").notNull(),
+  strengths: json("strengths").notNull(),
+  preferredExplanationStyle: varchar("preferredExplanationStyle", { length: 120 }).notNull(),
+  recommendedStrategy: text("recommendedStrategy").notNull(),
+  updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
+});
+
+export const twinInteractions = mysqlTable("twinInteractions", {
+  id: int("id").autoincrement().primaryKey(),
+  teacherId: int("teacherId").notNull(),
+  studentId: int("studentId"),
+  concept: varchar("concept", { length: 160 }).notNull(),
+  teacherRequest: text("teacherRequest").notNull(),
+  generatedResponse: json("generatedResponse").notNull(),
+  studentAnswer: text("studentAnswer"),
+  learningSignal: json("learningSignal"),
+  createdAt: bigint("createdAt", { mode: "number" }).notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type TeachingMaterial = typeof teachingMaterials.$inferSelect;
 export type TeachingAnalysis = typeof teachingAnalyses.$inferSelect;
 export type TeachingDNA = typeof teachingDna.$inferSelect;
 export type TeachingDNAEvidence = typeof teachingDnaEvidence.$inferSelect;
+export type Student = typeof students.$inferSelect;
+export type StudentProgress = typeof studentProgress.$inferSelect;
+export type TwinInteraction = typeof twinInteractions.$inferSelect;
