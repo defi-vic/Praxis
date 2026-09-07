@@ -27,11 +27,11 @@ const learningSignalSchema = z.object({
 const interventionSchema = z.object({
   title: z.string().min(1).max(120),
   concept: z.string().min(1).max(160),
-  teaching_approach: z.array(z.string().min(1).max(100)).min(1).max(4),
+  teaching_approach: z.array(z.string().min(1).max(220)).min(1).max(4),
   opening: z.string().min(1).max(500),
   guided_question: z.string().min(1).max(300),
   check_for_understanding: z.string().min(1).max(300),
-  expected_misconception: z.string().min(1).max(240),
+  expected_misconception: z.string().min(1).max(500),
 });
 
 export type TwinResponse = z.infer<typeof twinResponseSchema>;
@@ -76,7 +76,7 @@ function parseStructured<T>(response: Awaited<ReturnType<typeof invokeLLM>>, sch
     try { parsed = JSON.parse(cleaned); } catch { parsed = JSON.parse(cleaned.slice(cleaned.indexOf("{"), cleaned.lastIndexOf("}") + 1)); }
   } catch { throw new Error("Praxis Twin returned invalid structured output. Please retry."); }
   const result = schema.safeParse(parsed);
-  if (!result.success) throw new Error("Praxis Twin returned an invalid structured response. Please retry.");
+  if (!result.success) { console.warn("[Praxis Twin] structured response validation failed", result.error.issues.map(issue => issue.path.join(".") + ": " + issue.message)); throw new Error("Praxis Twin returned an invalid structured response. Please retry."); }
   return result.data;
 }
 
@@ -103,7 +103,7 @@ export async function evaluateStudentAnswer(input: { teacherId: number; studentI
 
 export async function generateIntervention(input: { teacherId: number; studentId: number; concept: string; learningSignal: LearningSignal }) {
   const [dna, studentContext] = await Promise.all([getTeachingDNA(input.teacherId), getStudentContext(input.studentId, input.teacherId)]);
-  const response = await invokeLLM({ model: "gpt-5-mini", maxCompletionTokens: 2600, reasoning: { effort: "low" }, messages: [{ role: "system", content: "You are Praxis Twin creating a short teacher-reviewed intervention. Return only valid JSON; do not make high-stakes decisions." }, { role: "user", content: `Teaching DNA: ${dnaContext(dna)}\nStudent: ${JSON.stringify(studentContext?.student)}\nProgress: ${JSON.stringify(studentContext?.progress)}\nConcept: ${input.concept}\nLearning signal: ${JSON.stringify(input.learningSignal)}\nCreate a 5-minute intervention that uses the teacher's demonstrated style and targets the detected misconception.` }], response_format: { type: "json_schema", json_schema: { name: "praxis_intervention", strict: true, schema: { type: "object", additionalProperties: false, properties: { title: { type: "string" }, concept: { type: "string" }, teaching_approach: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 4 }, opening: { type: "string" }, guided_question: { type: "string" }, check_for_understanding: { type: "string" }, expected_misconception: { type: "string" } }, required: ["title", "concept", "teaching_approach", "opening", "guided_question", "check_for_understanding", "expected_misconception"] } } } });
+  const response = await invokeLLM({ model: "gpt-5-mini", maxCompletionTokens: 2600, reasoning: { effort: "low" }, messages: [{ role: "system", content: "You are Praxis Twin creating a short teacher-reviewed intervention. Return only valid JSON; do not make high-stakes decisions." }, { role: "user", content: `Teaching DNA: ${dnaContext(dna)}\nStudent: ${JSON.stringify(studentContext?.student)}\nProgress: ${JSON.stringify(studentContext?.progress)}\nConcept: ${input.concept}\nLearning signal: ${JSON.stringify(input.learningSignal)}\nCreate a 5-minute intervention that uses the teacher's demonstrated style and targets the detected misconception. Keep each teaching_approach item under 180 characters and expected_misconception under 400 characters.` }], response_format: { type: "json_schema", json_schema: { name: "praxis_intervention", strict: true, schema: { type: "object", additionalProperties: false, properties: { title: { type: "string", maxLength: 120 }, concept: { type: "string", maxLength: 160 }, teaching_approach: { type: "array", items: { type: "string", maxLength: 220 }, minItems: 1, maxItems: 4 }, opening: { type: "string", maxLength: 500 }, guided_question: { type: "string", maxLength: 300 }, check_for_understanding: { type: "string", maxLength: 300 }, expected_misconception: { type: "string", maxLength: 500 } }, required: ["title", "concept", "teaching_approach", "opening", "guided_question", "check_for_understanding", "expected_misconception"] } } } });
   return parseStructured(response, interventionSchema);
 }
 

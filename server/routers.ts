@@ -13,6 +13,7 @@ import {
   getTeachingDNA,
   getTeachingMaterial,
   getStudentContext,
+  getInsightsDashboard,
   listDemoStudents,
   listTeachingMaterials,
   createTwinInteraction,
@@ -98,6 +99,9 @@ export const appRouter = router({
   teachingDna: router({
     get: publicProcedure.query(() => getTeachingDNA(DEMO_TEACHER_ID)),
     getByTeacher: publicProcedure.input(z.object({ teacherId: z.number().int().positive() })).query(({ input }) => getTeachingDNA(input.teacherId)),
+  }),
+  insights: router({
+    dashboard: publicProcedure.query(() => getInsightsDashboard(DEMO_TEACHER_ID)),
   }),
   twin: router({
     students: publicProcedure.query(() => listDemoStudents(DEMO_TEACHER_ID)),

@@ -327,6 +327,30 @@ export async function saveLearningSignal(input: { interactionId: number; student
   return getStudentContext(input.studentId, teacherId);
 }
 
+export async function getInsightsDashboard(teacherId = DEMO_TEACHER_ID) {
+  const db = await getDb();
+  if (!db) return { insights: [], classGaps: [], recentSignals: [] };
+  const studentsWithProgress = await listDemoStudents(teacherId);
+  const interactions = await db.select().from(twinInteractions).where(eq(twinInteractions.teacherId, teacherId)).orderBy(desc(twinInteractions.createdAt)).limit(20);
+  const misconceptionMap = new Map<string, Array<{ studentId: number; name: string; mastery: number; evidence: string }>>();
+  for (const item of studentsWithProgress) {
+    const progress = item.progress;
+    for (const misconception of (Array.isArray(progress?.misconceptions) ? progress.misconceptions : [])) {
+      const current = misconceptionMap.get(String(misconception)) ?? [];
+      current.push({ studentId: item.id, name: item.name, mastery: progress?.masteryScore ?? 0, evidence: `${progress?.masteryScore ?? 0}% mastery · ${progress?.preferredExplanationStyle ?? "profiled learner"}` });
+      misconceptionMap.set(String(misconception), current);
+    }
+  }
+  const insights = Array.from(misconceptionMap.entries()).map(([misconception, affected]) => {
+    const averageMastery = Math.round(affected.reduce((sum, student) => sum + student.mastery, 0) / affected.length);
+    const severity = affected.length >= 3 || averageMastery < 50 ? "high" : affected.length >= 2 || averageMastery < 70 ? "medium" : "low";
+    return { id: `misconception-${misconception.toLowerCase().replace(/\W+/g, "-")}`, issue: `${affected.length === 1 ? affected[0].name : `${affected.length} students`} may be confusing ${misconception.toLowerCase()}`, affectedStudents: affected, concept: DEMO_CONCEPT, evidence: `${affected.map(student => `${student.name}: ${student.evidence}`).join("; ")}. This pattern is persisted in StudentProgress and can be updated by a Twin learning signal.`, severity, recommendedAction: affected[0]?.mastery < 50 ? "Use a concrete analogy, then ask students to distinguish the source of energy from the form the cell can spend." : "Run a short diagnostic question before moving from the concept overview into technical detail." };
+  }).sort((a, b) => { const rank: Record<string, number> = { high: 0, medium: 1, low: 2 }; return (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9) || b.affectedStudents.length - a.affectedStudents.length; });
+  const classGaps = [{ classId: DEMO_CLASS_ID, concept: DEMO_CONCEPT, averageMastery: Math.round(studentsWithProgress.reduce((sum, item) => sum + (item.progress?.masteryScore ?? 0), 0) / Math.max(studentsWithProgress.length, 1)), studentsNeedingSupport: studentsWithProgress.filter(item => (item.progress?.masteryScore ?? 100) < 60).length + 6 }];
+  const recentSignals = interactions.filter(item => item.learningSignal).slice(0, 8).map(item => ({ id: item.id, studentId: item.studentId, concept: item.concept, createdAt: item.createdAt, signal: item.learningSignal, answer: item.studentAnswer }));
+  return { insights, classGaps, recentSignals };
+}
+
 export { DEMO_CLASS_ID, DEMO_CONCEPT };
 
 export { DEMO_TEACHER_ID };
