@@ -175,7 +175,7 @@ function TwinView({ showToast, dna, setActive }: { showToast: (message: string) 
   };
   const dnaRows = Object.entries(dna?.rawAnalysis?.dimensions ?? {}).filter(([, detail]: any) => detail.status === "observed").slice(0, 4) as Array<[string, any]>;
   return <>
-    <div className="workspace-heading twin-heading"><div><span className="micro-label">MY TWIN / ACTIVE COMPANION</span><h1>Your Praxis Twin.</h1><p>An AI teaching companion shaped by the way you teach.</p></div><div className="twin-status"><span /> Teaching DNA active</div></div>
+    <div className="workspace-heading twin-heading"><div><span className="micro-label">MY TWIN / ACTIVE COMPANION</span><h1>Your Praxis Twin.</h1><p>An AI teaching companion shaped by the way you teach.</p></div><div className="twin-heading-actions"><Link className="workspace-secondary" href="/learn">Open Praxis Learn <ArrowUpRight size={14} /></Link><div className="twin-status"><span /> Teaching DNA active</div></div></div>
     <div className="twin-summary-strip"><div><span className="micro-label">TWIN STATUS</span><strong><i /> Active</strong></div><div><span className="micro-label">TEACHING DNA</span><strong>{dna ? dna.confidence : "Developing"}</strong></div><div><span className="micro-label">SOURCES ANALYZED</span><strong>{dna?.sourceCount ?? 0} materials</strong></div><button onClick={() => setActive("Teaching DNA")}>View DNA <ArrowUpRight size={14} /></button></div>
     <div className="twin-workspace-grid">
       <section className="twin-conversation">

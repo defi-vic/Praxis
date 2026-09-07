@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { invokeLLM } from "./_core/llm";
-import { getStudentContext, getTeachingDNA, listDemoStudents } from "./db";
+import { getRecentTwinInteractions, getStudentContext, getTeachingDNA, listDemoStudents } from "./db";
 
 const twinResponseSchema = z.object({
   response: z.string().min(1).max(3000),
@@ -8,8 +8,8 @@ const twinResponseSchema = z.object({
   personalization: z.array(z.string().min(1).max(180)).max(5),
   follow_up_question: z.string().min(1).max(300),
   why_taught_this_way: z.object({
-    teaching_style: z.array(z.string().min(1).max(120)).max(4),
-    student_adaptation: z.array(z.string().min(1).max(160)).max(4),
+    teaching_style: z.array(z.string().min(1).max(240)).max(4),
+    student_adaptation: z.array(z.string().min(1).max(240)).max(4),
   }),
   concept: z.string().min(1).max(160),
 });
@@ -87,10 +87,10 @@ function dnaContext(dna: any) {
 }
 
 export async function generateTwinExplanation(input: { teacherId: number; studentId: number | null; request: string }) {
-  const [dna, studentContext] = await Promise.all([getTeachingDNA(input.teacherId), getStudentContext(input.studentId, input.teacherId)]);
+  const [dna, studentContext, previousSignals] = await Promise.all([getTeachingDNA(input.teacherId), getStudentContext(input.studentId, input.teacherId), getRecentTwinInteractions(input.teacherId, input.studentId)]);
   const student = studentContext?.student;
   const progress = studentContext?.progress;
-  const prompt = `Teacher request: ${input.request}\n\nTeaching DNA (use these demonstrated patterns as active constraints, not decoration): ${dnaContext(dna)}\n\nStudent context: ${student ? JSON.stringify({ name: student.name, mastery: progress?.masteryScore, confidence: progress?.confidenceScore, misconceptions: progress?.misconceptions, strengths: progress?.strengths, preferredApproach: progress?.preferredExplanationStyle, recommendedStrategy: progress?.recommendedStrategy }) : "General class; no individual profile selected."}\n\nGenerate a personalized explanation. If a misconception is present, address it directly without shaming. Use only strategies that are genuinely reflected in the explanation and return those strategies. Keep the teacher in control; this is a recommendation, not an automated grade.`;
+  const prompt = `Teacher request: ${input.request}\n\nTeaching DNA (use these demonstrated patterns as active constraints, not decoration): ${dnaContext(dna)}\n\nStudent context: ${student ? JSON.stringify({ name: student.name, mastery: progress?.masteryScore, confidence: progress?.confidenceScore, misconceptions: progress?.misconceptions, strengths: progress?.strengths, preferredApproach: progress?.preferredExplanationStyle, recommendedStrategy: progress?.recommendedStrategy }) : "General class; no individual profile selected."}\n\nPrevious Twin learning signals for this learner: ${JSON.stringify(previousSignals.map(signal => ({ concept: signal.concept, answer: signal.studentAnswer, learningSignal: signal.learningSignal })))}\n\nGenerate a personalized explanation. If a misconception is present, address it directly without shaming. If this request asks for a different explanation, deliberately change the analogy or teaching move rather than repeating prior wording. End with exactly one short concept-check question that asks Daniel to choose or explain the difference between glucose and ATP; do not ask whether he wants another activity and do not include multiple questions. Use only strategies that are genuinely reflected in the explanation and return those strategies. Keep the teacher in control; this is a recommendation, not an automated grade.`;
   const response = await invokeLLM({ model: "gpt-5-mini", maxCompletionTokens: 4200, reasoning: { effort: "low" }, messages: [{ role: "system", content: "You are Praxis Twin, an AI teaching companion. You learn how a teacher explains concepts and adapt that approach for individual learners. Return only valid JSON." }, { role: "user", content: prompt }], response_format: { type: "json_schema", json_schema: { name: "praxis_twin_response", strict: true, schema: responseSchema } } });
   return { result: parseStructured(response, twinResponseSchema), dna, studentContext };
 }

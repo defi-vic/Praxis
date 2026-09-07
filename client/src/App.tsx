@@ -5,8 +5,9 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Workspace from "./pages/Workspace";
+import Learn from "./pages/Learn";
 
 function App() {
-  return <ErrorBoundary><ThemeProvider defaultTheme="light"><TooltipProvider><Toaster /><Switch><Route path="/" component={Home} /><Route path="/workspace" component={Workspace} /></Switch></TooltipProvider></ThemeProvider></ErrorBoundary>;
+  return <ErrorBoundary><ThemeProvider defaultTheme="light"><TooltipProvider><Toaster /><Switch><Route path="/" component={Home} /><Route path="/workspace" component={Workspace} /><Route path="/learn" component={Learn} /></Switch></TooltipProvider></ThemeProvider></ErrorBoundary>;
 }
 export default App;
